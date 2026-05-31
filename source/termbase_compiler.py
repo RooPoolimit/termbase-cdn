@@ -93,7 +93,6 @@ def _build_compiled_dict() -> dict:
         "schema_version": "v3",
         "termbase_version": date.today().strftime("%Y.%m.%d"),
         "min_extension_version": "0.0.0",
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "terms": terms,
     }
 
