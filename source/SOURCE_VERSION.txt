@@ -1,0 +1,6 @@
+backend_commit: unknown
+copied_at: 2026-05-31T09:59:43Z
+files:
+  compiled_schema.py: 3992d600a610109cdbc5d0c2de6b66596d6c186ef58b052d7fb04fc6018c0314
+  termbase.published.db: a2970712a9e08ecd9126b42ab1ba78839d8fd691c1fba1a40adbebc1bfdf50bd
+  termbase_compiler.py: f6044d62931d0fc5df33da1195a4449ef46170ac28f11b05582512ab3db7e992
