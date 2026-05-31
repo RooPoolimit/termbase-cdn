@@ -1,0 +1,7 @@
+# Python bytecode caches — machine-specific, no value in versioning
+__pycache__/
+*.pyc
+*.pyo
+
+# Local Action artifacts — never commit
+*.local.json
