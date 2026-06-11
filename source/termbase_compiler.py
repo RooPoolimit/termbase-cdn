@@ -3,7 +3,7 @@ termbase compiler — 生成 extension 可消费的 compiled_termbase.json + SHA
 模块级缓存：/version 和 /compiled 共享同一份字节，避免漂移
 """
 
-import json, time, hashlib, sqlite3, os
+import json, re, time, hashlib, sqlite3, os
 from datetime import date
 from compiled_schema import KEEP_ENGLISH_MODES
 
@@ -14,6 +14,47 @@ _cached_bytes = None
 _cached_checksum = None
 _cached_at = 0
 CACHE_TTL = 300  # 5 minutes
+
+_PLURAL_WORD_RE = re.compile(r"^[A-Za-z]{2,}$")
+
+
+def _plural_variant(term_text: str) -> str | None:
+    """Best-effort English plural for a translate-as term, or None.
+
+    扩展端的 ASCII 词边界匹配不到复数（"Agents" ≠ "Agent"），人工 aliases 兜不全。
+    多词术语只复数化最后一个词（"Large Language Model" → "Large Language Models"），
+    缩写直接 +s（"LLM" → "LLMs"）。保守跳过：末词含数字/连字符/符号，或本就以 s
+    结尾（可能已是复数）。"""
+    text = (term_text or "").strip()
+    if not text:
+        return None
+    prefix, _, last = text.rpartition(" ")
+    if not _PLURAL_WORD_RE.match(last):
+        return None
+    lower = last.lower()
+    if lower.endswith("s"):
+        return None
+    if lower.endswith(("x", "z", "ch", "sh")):
+        plural = last + "es"
+    elif lower.endswith("y") and lower[-2] not in "aeiou":
+        plural = last[:-1] + "ies"
+    else:
+        plural = last + "s"
+    return (prefix + " " + plural) if prefix else plural
+
+
+# priority = 已知误译的最高 severity。它回答的是"40 条指令上限挤爆时，谁该留下"——
+# 最强的信号就是"模型在这个词上有记录在案的翻车史"。无 wrong 记录 → 0（字段不发，
+# 省 payload）；扩展端缺省按 0 处理，向后兼容旧 payload。
+_SEVERITY_PRIORITY = {"high": 3, "medium": 2, "low": 1}
+
+
+def _priority_for(wrongs: list) -> int:
+    p = 0
+    for w in wrongs:
+        p = max(p, _SEVERITY_PRIORITY.get(str(w.get("severity") or "").lower(), 1))
+    return p
+
 
 def _build_compiled_dict() -> dict:
     """从 v3 DB 编译 extension 可消费的结构"""
@@ -30,15 +71,37 @@ def _build_compiled_dict() -> dict:
         ORDER BY source_lang, target_lang, source_term
     """).fetchall()
 
+    # 合成复数别名的全局冲突防护：一个变体若已被任何 approved 术语的 source_term
+    # 或人工 alias 占用，则不生成——既不在 compiled 里制造 lint 看不见的 alias
+    # 撞车，也保证人工数据永远赢过合成数据。
+    alias_map: dict = {}
+    for r in conn.execute("""
+        SELECT a.term_id, a.alias FROM term_aliases a
+        JOIN terms t ON t.id = a.term_id
+        WHERE t.status = 'approved' ORDER BY a.id
+    """).fetchall():
+        alias_map.setdefault(r["term_id"], []).append(r["alias"])
+    claimed = {t["source_term"].strip().lower() for t in terms_rows}
+    for arr in alias_map.values():
+        for a in arr:
+            claimed.add(a.strip().lower())
+
     terms = []
     for t in terms_rows:
         tid = t["id"]
 
-        # aliases → 扁平字符串数组
-        alias_rows = conn.execute(
-            "SELECT alias FROM term_aliases WHERE term_id = ? ORDER BY id", (tid,)
-        ).fetchall()
-        aliases = [a["alias"] for a in alias_rows]
+        keep_mode = t["keep_english_v2"] if (t["keep_english_v2"] or "") in KEEP_ENGLISH_MODES else "never"
+
+        # aliases → 扁平字符串数组（人工别名在前，合成复数在后）
+        aliases = list(alias_map.get(tid, []))
+        # 合成复数仅限 translate-as 术语 + 英文源：always 品牌词跳过——专有名词
+        # 复数没有意义（"Claude 4 Opuses"），且它们走 [##Kn##] 掩码路径。
+        if keep_mode != "always" and str(t["source_lang"] or "").lower().startswith("en"):
+            for cand in [t["source_term"]] + list(aliases):
+                variant = _plural_variant(cand)
+                if variant and variant.lower() not in claimed:
+                    claimed.add(variant.lower())
+                    aliases.append(variant)
 
         # wrong_translations
         wrong_rows = conn.execute(
@@ -71,9 +134,7 @@ def _build_compiled_dict() -> dict:
             except json.JSONDecodeError:
                 domain_tags = [raw_tags]
 
-        keep_mode = t["keep_english_v2"] if (t["keep_english_v2"] or "") in KEEP_ENGLISH_MODES else "never"
-
-        terms.append({
+        compiled_term = {
             "source_term": t["source_term"],
             "target_term": t["target_term"],
             "source_lang": t["source_lang"],
@@ -85,7 +146,12 @@ def _build_compiled_dict() -> dict:
             "domain_tags": domain_tags,
             "contexts": contexts,
             "relations": relations,
-        })
+        }
+        # 稀疏字段：仅 >0 才发（约 1/10 的术语有 wrong 记录），其余省 payload。
+        priority = _priority_for(wrongs)
+        if priority:
+            compiled_term["priority"] = priority
+        terms.append(compiled_term)
 
     conn.close()
 
