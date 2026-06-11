@@ -17,6 +17,9 @@ import os
 import sys
 from typing import Any
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from compiled_schema import validate_compiled_payload
+
 
 DOWNLOAD_URL = "https://roopoolimit.github.io/termbase-cdn/api/termbase/compiled"
 
@@ -114,8 +117,24 @@ def publish(source_dir: str, repo_root: str, mode: str = "dry-run") -> dict[str,
     hash_warnings = check_source_hashes(source_dir)
     for warning in hash_warnings:
         print(f"WARNING: SOURCE_VERSION hash mismatch: {warning}")
+    # apply must refuse a snapshot whose files don't match what sync_to_cdn.py
+    # recorded — a tampered/partially-synced source dir would otherwise publish
+    # straight to production. dry-run keeps reporting only, so a mismatch can
+    # still be inspected from the Action logs.
+    if mode == "apply" and hash_warnings:
+        raise SystemExit(
+            "FATAL: SOURCE_VERSION hash mismatch; refusing to apply. "
+            "Re-run the backend sync (python sync_to_cdn.py) and commit a consistent snapshot."
+        )
 
     raw, checksum, payload = compile_from_source(source_dir)
+    # Schema contract gate: this is the LAST check before bytes reach the CDN.
+    # It blocks e.g. an accidentally empty published.db (payload with no terms)
+    # or a compiler/schema drift from publishing.
+    try:
+        validate_compiled_payload(payload)
+    except ValueError as exc:
+        raise SystemExit(f"FATAL: compiled payload failed the schema contract: {exc}")
     previous = load_previous(api_dir)
     previous_count = len(previous.get("terms", [])) if previous else 0
     current_count = len(payload.get("terms", []))

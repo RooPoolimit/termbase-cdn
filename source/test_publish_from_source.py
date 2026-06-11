@@ -126,6 +126,41 @@ class PublishFromSourceTests(unittest.TestCase):
             self.assertEqual(len(result["hash_warnings"]), 1)
             self.assertIn("compiled_schema.py", result["hash_warnings"][0])
 
+    def test_source_hash_mismatch_blocks_apply(self):
+        # dry-run reports; apply REFUSES — a tampered or partially-synced
+        # snapshot must never reach production.
+        with tempfile.TemporaryDirectory() as repo:
+            source = os.path.join(repo, "source")
+            os.makedirs(source)
+            copy_source_tree(source)
+            with open(os.path.join(source, "compiled_schema.py"), "a", encoding="utf-8") as f:
+                f.write("\n# local edit\n")
+
+            with self.assertRaises(SystemExit):
+                publish_from_source.publish(source, repo, mode="apply")
+            self.assertFalse(os.path.exists(os.path.join(repo, "api", "termbase", "compiled")))
+
+    def test_empty_published_db_fails_schema_contract(self):
+        # An accidentally empty published.db would otherwise publish an empty
+        # termbase to every user. validate_compiled_payload blocks it.
+        with tempfile.TemporaryDirectory() as repo:
+            source = os.path.join(repo, "source")
+            os.makedirs(source)
+            copy_source_tree(source)
+            db = os.path.join(source, "termbase.published.db")
+            conn = sqlite3.connect(db)
+            conn.execute("DELETE FROM terms")
+            conn.commit()
+            conn.close()
+            # keep SOURCE_VERSION consistent so we exercise the schema gate,
+            # not the hash gate
+            with open(os.path.join(source, "SOURCE_VERSION.txt"), "w", encoding="utf-8") as f:
+                f.write("backend_commit: test\ncopied_at: 2026-05-31T00:00:00Z\nfiles:\n")
+                f.write(f"  termbase.published.db: {publish_from_source.sha256_file(db)}\n")
+
+            with self.assertRaises(SystemExit):
+                publish_from_source.publish(source, repo, mode="apply")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
