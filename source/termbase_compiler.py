@@ -92,11 +92,23 @@ def _build_compiled_dict() -> dict:
 
         keep_mode = t["keep_english_v2"] if (t["keep_english_v2"] or "") in KEEP_ENGLISH_MODES else "never"
 
+        # domain_tags: DB 里是 JSON 字符串
+        domain_tags = []
+        raw_tags = t["domain_tags"] or ""
+        if raw_tags:
+            try:
+                domain_tags = json.loads(raw_tags)
+            except json.JSONDecodeError:
+                domain_tags = [raw_tags]
+
         # aliases → 扁平字符串数组（人工别名在前，合成复数在后）
         aliases = list(alias_map.get(tid, []))
         # 合成复数仅限 translate-as 术语 + 英文源：always 品牌词跳过——专有名词
         # 复数没有意义（"Claude 4 Opuses"），且它们走 [##Kn##] 掩码路径。
-        if keep_mode != "always" and str(t["source_lang"] or "").lower().startswith("en"):
+        # 游戏包里大量条目是角色、地点、作品和道具专名，自动复数会造出
+        # "Links" / "The Legend of Zeldas" 这类误命中 alias；需要复数的游戏名词
+        # 应显式录入人工 alias。
+        if keep_mode != "always" and "game" not in domain_tags and str(t["source_lang"] or "").lower().startswith("en"):
             for cand in [t["source_term"]] + list(aliases):
                 variant = _plural_variant(cand)
                 if variant and variant.lower() not in claimed:
@@ -124,15 +136,6 @@ def _build_compiled_dict() -> dict:
             "type": r["relation_type"],
             "weight": r["relation_weight"],
         } for r in rel_rows]
-
-        # domain_tags: DB 里是 JSON 字符串
-        domain_tags = []
-        raw_tags = t["domain_tags"] or ""
-        if raw_tags:
-            try:
-                domain_tags = json.loads(raw_tags)
-            except json.JSONDecodeError:
-                domain_tags = [raw_tags]
 
         compiled_term = {
             "source_term": t["source_term"],
