@@ -2,7 +2,7 @@
   "schema_version": "v3",
   "termbase_version": "2026.06.17",
   "min_extension_version": "0.0.0",
-  "checksum": "21a176275d7cff67aac2a6e07626d628d50d608de2dc7ad10c3c44aee65e7762",
+  "checksum": "852464e6dfe93df766321be6c808d653ac685fb71bbc43b12bb827a439e34a3c",
   "download_url": "https://roopoolimit.github.io/termbase-cdn/api/termbase/compiled",
-  "generated_at": "2026-06-16T18:24:29Z"
+  "generated_at": "2026-06-17T05:04:08Z"
 }
