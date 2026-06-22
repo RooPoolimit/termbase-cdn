@@ -4,7 +4,6 @@ termbase compiler — 生成 extension 可消费的 compiled_termbase.json + SHA
 """
 
 import json, re, time, hashlib, sqlite3, os
-from datetime import date
 from compiled_schema import KEEP_ENGLISH_MODES
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "termbase.published.db")
@@ -54,6 +53,17 @@ def _priority_for(wrongs: list) -> int:
     for w in wrongs:
         p = max(p, _SEVERITY_PRIORITY.get(str(w.get("severity") or "").lower(), 1))
     return p
+
+
+def _content_version(terms: list) -> str:
+    """Content-derived termbase_version: a stable 16-hex digest of the compiled
+    term list. Identical data always yields the same version (and therefore the
+    same checksum), regardless of WHEN it is compiled — replacing the old
+    date.today() value, which churned the checksum daily for unchanged data and
+    let same-day republishes collide. Human 'when' lives in the un-hashed
+    `generated_at` field of the /version envelope, never in the hashed payload."""
+    canonical = json.dumps(terms, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def _build_compiled_dict() -> dict:
@@ -160,7 +170,7 @@ def _build_compiled_dict() -> dict:
 
     return {
         "schema_version": "v3",
-        "termbase_version": date.today().strftime("%Y.%m.%d"),
+        "termbase_version": _content_version(terms),
         "min_extension_version": "0.0.0",
         "terms": terms,
     }
