@@ -4,5 +4,9 @@
   "min_extension_version": "0.0.0",
   "checksum": "e9a0e5f5b69f98868dade53fac3a30cb04b9bcc800affded68833b7179a675da",
   "download_url": "https://roopoolimit.github.io/termbase-cdn/api/termbase/compiled",
-  "generated_at": "2026-06-23T09:24:25Z"
+  "generated_at": "2026-06-23T16:29:08Z",
+  "key_id": "k1",
+  "publish_seq": 1,
+  "compiled_sha256": "e9a0e5f5b69f98868dade53fac3a30cb04b9bcc800affded68833b7179a675da",
+  "signature": "tRpD7jp4hY36rqbFSJiX+OlD95HoDABsZfO+LSwUVFyTZr8sawfNZyt0kxyABSf2ltvjkV6zzRLVqsbrbqvlAg=="
 }
