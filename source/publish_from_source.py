@@ -9,6 +9,7 @@ that prints diffs without writing API files.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime
 import hashlib
 import importlib.util
@@ -19,9 +20,12 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from compiled_schema import validate_compiled_payload
+import termbase_signing as ts
 
 
 DOWNLOAD_URL = "https://roopoolimit.github.io/termbase-cdn/api/termbase/compiled"
+SIGNATURE_FILENAME = "SIGNATURE"
+PUBKEYS_FILENAME = "PUBKEYS.json"
 
 
 def sha256_file(path: str) -> str:
@@ -95,8 +99,121 @@ def load_previous(api_dir: str) -> dict[str, Any] | None:
         return None
 
 
-def build_version(payload: dict[str, Any], checksum: str) -> dict[str, str]:
-    return {
+def load_signature(source_dir: str) -> dict[str, Any] | None:
+    """Read source/SIGNATURE (the offline signer's output). None if absent."""
+    path = os.path.join(source_dir, SIGNATURE_FILENAME)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_trusted_keys(source_dir: str) -> dict[str, bytes]:
+    """Read source/PUBKEYS.json -> {key_id: raw 32-byte public key}.
+
+    Non-secret: this is the CI defense-in-depth trust list. The EXTENSION embeds
+    its own public key (PR-C) and is the authoritative verifier; this check just
+    stops an accidentally- or obviously-wrong payload from being published.
+    """
+    path = os.path.join(source_dir, PUBKEYS_FILENAME)
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    keys: dict[str, bytes] = {}
+    for key_id, b64 in (data or {}).items():
+        try:
+            keys[key_id] = base64.b64decode(b64, validate=True)
+        except (ValueError, TypeError):
+            continue  # a malformed key entry is simply not trusted
+    return keys
+
+
+def current_published_publish_seq(api_dir: str) -> int:
+    """publish_seq of the currently-published /version, or 0 if none/absent — so
+    the first signed publish (seq 1) is strictly greater."""
+    path = os.path.join(api_dir, "version")
+    if not os.path.exists(path):
+        return 0
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (ValueError, OSError):
+        return 0
+    seq = data.get("publish_seq", 0)
+    return seq if isinstance(seq, int) and not isinstance(seq, bool) else 0
+
+
+def verify_signature(
+    source_dir: str, api_dir: str, raw: bytes, payload: dict[str, Any]
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Verify the offline SIGNATURE against the freshly-compiled bytes.
+
+    Transition behavior (Phase 2): an ABSENT SIGNATURE is ALLOWED — it returns no
+    errors and the publish proceeds UNSIGNED. This Action check is defense-in-depth
+    / process validation, not the trust root (that is the extension's embedded key,
+    PR-C). A PRESENT SIGNATURE MUST verify.
+
+    Returns (record, errors); an EMPTY errors list means "ok to publish" (either no
+    signature at all, or a fully valid one). FAIL-CLOSED — a non-empty list must
+    abort `apply`. For a PRESENT signature the checks are: well-formed; key_id
+    trusted (else "unknown key"); the signed compiled_sha256 equals sha256(raw); the
+    Ed25519 signature verifies over PR-A's canonical message (derived fields read
+    from the payload); and publish_seq is strictly greater than the currently-
+    published one.
+    """
+    record = load_signature(source_dir)
+    if record is None:
+        # Phase-2 (transition): an ABSENT signature is allowed — this Action check
+        # is defense-in-depth / process validation, NOT the trust root. The trust
+        # root is the public key the EXTENSION embeds (PR-C), which is what makes a
+        # signature mandatory for clients. A PRESENT signature, though, MUST verify.
+        return None, []
+    missing = [f for f in ("key_id", "publish_seq", "compiled_sha256", "signature")
+               if f not in record]
+    if missing:
+        return record, [f"SIGNATURE missing field(s): {missing}"]
+
+    key_id = record["key_id"]
+    publish_seq = record["publish_seq"]
+    signed_sha = record["compiled_sha256"]
+
+    public_key = load_trusted_keys(source_dir).get(key_id)
+    if public_key is None:
+        # Without the key the signature cannot be checked at all — stop here.
+        return record, [f"unknown key_id {key_id!r} (not in {PUBKEYS_FILENAME})"]
+
+    errors: list[str] = []
+    actual_sha = ts.sha256_hex(raw)
+    if signed_sha != actual_sha:
+        errors.append(f"compiled_sha256 mismatch: signed {signed_sha}, recompiled {actual_sha}")
+
+    try:
+        derived = ts.compiled_fields(payload)
+    except ValueError as exc:
+        return record, errors + [str(exc)]
+
+    # Verifies over the SIGNED compiled_sha256; the mismatch check above is what
+    # catches "bytes changed but the old signature was kept".
+    if not ts.verify_manifest(
+        public_key, record["signature"],
+        key_id=key_id, publish_seq=publish_seq, compiled_sha256=signed_sha, **derived,
+    ):
+        errors.append("Ed25519 signature does not verify")
+
+    prev_seq = current_published_publish_seq(api_dir)
+    if not isinstance(publish_seq, int) or isinstance(publish_seq, bool) or publish_seq <= prev_seq:
+        errors.append(
+            f"publish_seq must be strictly greater than the current publish_seq "
+            f"({publish_seq!r} <= {prev_seq})"
+        )
+    return record, errors
+
+
+def build_version(
+    payload: dict[str, Any], checksum: str, signature_record: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    version: dict[str, Any] = {
         "schema_version": payload.get("schema_version", "v3"),
         "termbase_version": payload.get("termbase_version") or datetime.date.today().isoformat(),
         "min_extension_version": payload.get("min_extension_version", "0.0.0"),
@@ -104,6 +221,12 @@ def build_version(payload: dict[str, Any], checksum: str) -> dict[str, str]:
         "download_url": DOWNLOAD_URL,
         "generated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
+    if signature_record is not None:
+        version["key_id"] = signature_record["key_id"]
+        version["publish_seq"] = signature_record["publish_seq"]
+        version["compiled_sha256"] = signature_record["compiled_sha256"]
+        version["signature"] = signature_record["signature"]
+    return version
 
 
 def publish(source_dir: str, repo_root: str, mode: str = "dry-run") -> dict[str, Any]:
@@ -135,6 +258,17 @@ def publish(source_dir: str, repo_root: str, mode: str = "dry-run") -> dict[str,
         validate_compiled_payload(payload)
     except ValueError as exc:
         raise SystemExit(f"FATAL: compiled payload failed the schema contract: {exc}")
+
+    # Signature gate (PR-B): verify the offline SIGNATURE against the freshly
+    # compiled bytes. FAIL-CLOSED on apply; dry-run reports and continues.
+    signature_record, sig_errors = verify_signature(source_dir, api_dir, raw, payload)
+    for err in sig_errors:
+        print(f"WARNING: signature check: {err}")
+    if mode == "apply" and sig_errors:
+        raise SystemExit(
+            "FATAL: signature verification failed; refusing to apply: " + "; ".join(sig_errors)
+        )
+
     previous = load_previous(api_dir)
     previous_count = len(previous.get("terms", [])) if previous else 0
     current_count = len(payload.get("terms", []))
@@ -146,8 +280,10 @@ def publish(source_dir: str, repo_root: str, mode: str = "dry-run") -> dict[str,
     print(f"  checksum: {checksum}")
     print(f"  bytes: {len(raw)}")
     print(f"  mode: {mode}")
+    if signature_record and not sig_errors:
+        print(f"  signed: key_id={signature_record['key_id']} publish_seq={signature_record['publish_seq']}")
 
-    version = build_version(payload, checksum)
+    version = build_version(payload, checksum, None if sig_errors else signature_record)
     applied = mode == "apply"
     if applied:
         os.makedirs(api_dir, exist_ok=True)
@@ -170,6 +306,7 @@ def publish(source_dir: str, repo_root: str, mode: str = "dry-run") -> dict[str,
         "checksum": checksum,
         "bytes": len(raw),
         "version": version,
+        "signature_errors": sig_errors,
     }
 
 
