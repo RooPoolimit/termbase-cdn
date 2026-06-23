@@ -24,8 +24,6 @@ REQUIRED_COMPILED_TERM_FIELDS = frozenset({
     "aliases",
     "wrong_translations",
     "domain_tags",
-    "contexts",
-    "relations",
 })
 
 

@@ -131,22 +131,6 @@ def _build_compiled_dict() -> dict:
         ).fetchall()
         wrongs = [{"wrong": w["wrong_translation"], "severity": w["severity"]} for w in wrong_rows]
 
-        # contexts (前向兼容)
-        ctx_rows = conn.execute(
-            "SELECT context_type, definition_zh FROM term_contexts WHERE term_id = ? ORDER BY id", (tid,)
-        ).fetchall()
-        contexts = [{"type": c["context_type"], "zh": c["definition_zh"]} for c in ctx_rows]
-
-        # relations (前向兼容)
-        rel_rows = conn.execute(
-            "SELECT related_term_text, relation_type, relation_weight FROM term_relations WHERE term_id = ? ORDER BY relation_weight DESC", (tid,)
-        ).fetchall()
-        relations = [{
-            "related": r["related_term_text"],
-            "type": r["relation_type"],
-            "weight": r["relation_weight"],
-        } for r in rel_rows]
-
         compiled_term = {
             "source_term": t["source_term"],
             "target_term": t["target_term"],
@@ -157,8 +141,6 @@ def _build_compiled_dict() -> dict:
             "aliases": aliases,
             "wrong_translations": wrongs,
             "domain_tags": domain_tags,
-            "contexts": contexts,
-            "relations": relations,
         }
         # 稀疏字段：仅 >0 才发（约 1/10 的术语有 wrong 记录），其余省 payload。
         priority = _priority_for(wrongs)
