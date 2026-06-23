@@ -1,9 +1,9 @@
-backend_commit: 737522e1fe087c7bcc3bc5524531f09f8f3c66a4
-copied_at: 2026-06-23T11:19:20Z
+backend_commit: 6ab31e00b8b21e999e4b80dc81feb003eadef63f
+copied_at: 2026-06-23T18:14:57Z
 files:
   compiled_schema.py: e444e60ed54febf677916ff47e33a129decf742d301f70c375fccd822b9756a2
   publish_from_source.py: 2ed30d5d4046079785ec45bf484aa80df01577bd965931a48c05e69276a3029d
-  termbase.published.db: 349b2a17a1222048e58116f46ad71877c7eb0e0e0b3d6da956b4c81176bfa70e
+  termbase.published.db: 5ec25d084e6cf58c8828e89e3fc979e8701d3210c79255905397362eecc3fa22
   termbase_compiler.py: 7eff321cd5b02d70beaa68cc8e75e04aa11276eeef8f22307f9fb752319db021
   termbase_signing.py: bf552460ed0f5c6976df61393183cc9feefa0067bf3ae5e96f61872e6153b03c
   test_publish_from_source.py: bf5a83fe4021fc9d5505f9efe16639aa01e57dc1d2908a7787022bfa50c17cda
