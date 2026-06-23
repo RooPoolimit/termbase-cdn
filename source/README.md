@@ -13,6 +13,7 @@ Then review the CDN repo diff and commit manually.
 Files:
 
 - `compiled_schema.py`: runtime compiled payload contract constants
+- `termbase_signing.py`: Ed25519 canonical-message + verify helpers (signature check in publish_from_source.py)
 - `termbase_compiler.py`: CDN-side compiler copy, patched to read `termbase.published.db`
 - `publish_from_source.py`: GitHub Action helper for dry-run/apply publishing
 - `termbase.published.db`: minimal approved runtime database

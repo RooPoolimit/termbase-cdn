@@ -1,1 +1,4 @@
-# No third-party Python packages are required for CDN compilation.
+# cryptography backs the Ed25519 signature verification in
+# publish_from_source.py (via termbase_signing). The Action installs this;
+# it is NOT part of the compiled payload that clients download.
+cryptography>=42.0
