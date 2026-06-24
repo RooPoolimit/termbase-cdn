@@ -1,6 +1,6 @@
 {
   "key_id": "k1",
-  "publish_seq": 2,
-  "compiled_sha256": "1aa75d282ced1c1bc4594267ce8948cc0ce6a7948d95896976805fa3e87191a0",
-  "signature": "wMcNbPG9jVqJhbTb3od8g7NpL8J3oMIEJSGskMXZ5h5LIKIITOG3hfFsdNTNmaVeVNYW4vsbN7eslB5e2XPdDA=="
+  "publish_seq": 3,
+  "compiled_sha256": "37341631c8d9f09da4ef8183e59e79f6383910c368cb593dd2cbca62cc6841bd",
+  "signature": "3GGBi6bPi7wGw5/V/xmNX3C9a361ScbCzSE/wMljFVCpRk++jFQoOVL8SQZbellvOyiK19RFA+yzId6WEk4yDg=="
 }
