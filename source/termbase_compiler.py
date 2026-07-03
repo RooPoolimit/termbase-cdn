@@ -12,7 +12,29 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "termbase.pub
 _cached_bytes = None
 _cached_checksum = None
 _cached_at = 0
+_cached_db_stamp = None
 CACHE_TTL = 300  # 5 minutes
+
+
+def _db_change_stamp() -> tuple:
+    """DB 变化检测戳：主文件 mtime + -wal 的 mtime/size。
+
+    库是 WAL 模式：跨进程提交只写 -wal、不动主文件 mtime——只看主文件会让
+    外部写入（如 release workflow 对着运行中的 server 写库）后的 /compiled
+    陈旧到 TTL 到期。用"变化"而非"变大"比较，恢复旧备份（mtime 变小）也能
+    触发失效。-shm 刻意不看：读连接也会碰它，会造成缓存永远 miss。"""
+    stamp = [None, None, None]
+    try:
+        stamp[0] = os.path.getmtime(DB_PATH)
+    except OSError:
+        pass
+    try:
+        wal = DB_PATH + "-wal"
+        stamp[1] = os.path.getmtime(wal)
+        stamp[2] = os.path.getsize(wal)
+    except OSError:
+        pass
+    return tuple(stamp)
 
 _PLURAL_WORD_RE = re.compile(r"^[A-Za-z]{2,}$")
 
@@ -70,12 +92,26 @@ def _build_compiled_dict() -> dict:
     """从 v3 DB 编译 extension 可消费的结构"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    try:
+        return _build_compiled_dict_inner(conn)
+    finally:
+        # 此前编译中途抛异常会漏关连接（Windows 上文件句柄挂住临时目录清理）
+        conn.close()
+
+
+def _build_compiled_dict_inner(conn) -> dict:
+    # homograph 列 2026-07-04 引入；旧 schema（老备份/测试 fixture）没有该列
+    # ——等价于全部未审（NULL）：不发 ungated，照旧门控，向后兼容。
+    has_homograph = any(
+        r["name"] == "homograph" for r in conn.execute("PRAGMA table_info(terms)").fetchall()
+    )
+    homograph_col = ", homograph" if has_homograph else ""
 
     # 筛选：所有 approved 术语。语言对由每条 term 的 source_lang/target_lang 显式携带，
     # 扩展运行时按目标语言过滤，避免未来多语言术语被 compiler 静默丢弃。
-    terms_rows = conn.execute("""
+    terms_rows = conn.execute(f"""
         SELECT id, source_term, target_term, source_lang, target_lang, preferred_translation,
-               keep_english_v2, domain_tags
+               keep_english_v2, domain_tags{homograph_col}
         FROM terms
         WHERE status = 'approved'
         ORDER BY source_lang, target_lang, source_term
@@ -95,6 +131,19 @@ def _build_compiled_dict() -> dict:
     for arr in alias_map.values():
         for a in arr:
             claimed.add(a.strip().lower())
+
+    # wrong_translations 一次性取回（此前每术语一查，~1700 查询/编译）。
+    # 全局 ORDER BY w.id 保持每术语内的行序与旧逐条查询一致——顺序进
+    # 编译产物，动它就动 checksum。
+    wrongs_map: dict = {}
+    for r in conn.execute("""
+        SELECT w.term_id, w.wrong_translation, w.severity
+        FROM term_wrong_translations w
+        JOIN terms t ON t.id = w.term_id
+        WHERE t.status = 'approved' ORDER BY w.id
+    """).fetchall():
+        wrongs_map.setdefault(r["term_id"], []).append(
+            {"wrong": r["wrong_translation"], "severity": r["severity"]})
 
     terms = []
     for t in terms_rows:
@@ -125,11 +174,7 @@ def _build_compiled_dict() -> dict:
                     claimed.add(variant.lower())
                     aliases.append(variant)
 
-        # wrong_translations
-        wrong_rows = conn.execute(
-            "SELECT wrong_translation, severity FROM term_wrong_translations WHERE term_id = ? ORDER BY id", (tid,)
-        ).fetchall()
-        wrongs = [{"wrong": w["wrong_translation"], "severity": w["severity"]} for w in wrong_rows]
+        wrongs = wrongs_map.get(tid, [])
 
         compiled_term = {
             "source_term": t["source_term"],
@@ -146,9 +191,13 @@ def _build_compiled_dict() -> dict:
         priority = _priority_for(wrongs)
         if priority:
             compiled_term["priority"] = priority
+        # 危险度分级（2026-07-04）：homograph=0（人工审定的独特专名）发
+        # ungated:1——扩展端域硬过滤对它放行，无域信号也激活（Hasselblad、
+        # Zenyatta 不再被 Link/Canon 连坐）。homograph=1 或 NULL（未审）都
+        # 不发——运行时缺省 = 现行门控行为，fail-closed。
+        if has_homograph and t["homograph"] == 0:
+            compiled_term["ungated"] = 1
         terms.append(compiled_term)
-
-    conn.close()
 
     return {
         "schema_version": "v3",
@@ -168,11 +217,14 @@ def compile_termbase() -> tuple:
 
 
 def get_compiled_cached() -> tuple:
-    """缓存获取 compiled bytes + checksum；DB 文件变动自动失效"""
-    global _cached_bytes, _cached_checksum, _cached_at
+    """缓存获取 compiled bytes + checksum；DB 文件（含 WAL）变动自动失效"""
+    global _cached_bytes, _cached_checksum, _cached_at, _cached_db_stamp
     now = time.time()
-    db_mtime = os.path.getmtime(DB_PATH)
-    if _cached_bytes is None or (now - _cached_at) > CACHE_TTL or db_mtime > _cached_at:
+    stamp = _db_change_stamp()
+    if _cached_bytes is None or (now - _cached_at) > CACHE_TTL or stamp != _cached_db_stamp:
+        # 存"编译前"的戳：编译期间落进来的写入会让下次调用的新戳 != 它，
+        # 保守地多编译一次而不是漏掉（与旧实现 _cached_at 取编译前时刻同理）。
+        _cached_db_stamp = stamp
         _cached_bytes, _cached_checksum = compile_termbase()
         _cached_at = now
     return _cached_bytes, _cached_checksum
@@ -180,10 +232,11 @@ def get_compiled_cached() -> tuple:
 
 def invalidate_termbase_cache():
     """CRUD 操作后清除缓存"""
-    global _cached_bytes, _cached_checksum, _cached_at
+    global _cached_bytes, _cached_checksum, _cached_at, _cached_db_stamp
     _cached_bytes = None
     _cached_checksum = None
     _cached_at = 0
+    _cached_db_stamp = None
 
 
 # ── CLI 调试 ────────────────────────────────────
