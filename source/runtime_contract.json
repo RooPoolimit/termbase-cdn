@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "required_surfaces": [
+    {
+      "id": "cpp-symbol-keep",
+      "surface": "C++",
+      "canonical_source": "C++",
+      "target_term": "C++",
+      "keep_english_mode": "always",
+      "domain": "ai_ml",
+      "ungated": true
+    },
+    {
+      "id": "fine-tuning-orthographic-variant",
+      "surface": "Finetuning",
+      "canonical_source": "Fine-tuning",
+      "target_term": "微调",
+      "keep_english_mode": "never",
+      "domain": "ai_ml"
+    },
+    {
+      "id": "agent-game-plural",
+      "surface": "Agents",
+      "canonical_source": "Agent",
+      "target_term": "特工",
+      "keep_english_mode": "never",
+      "domain": "game"
+    },
+    {
+      "id": "glm-preferred-verbatim",
+      "surface": "GLM-4.5-Air",
+      "canonical_source": "GLM-4.5-Air",
+      "target_term": "GLM-4.5-Air",
+      "keep_english_mode": "preferred",
+      "domain": "ai_ml"
+    },
+    {
+      "id": "regression-ai-sense",
+      "surface": "Regression",
+      "canonical_source": "Regression",
+      "target_term": "回归",
+      "keep_english_mode": "never",
+      "domain": "ai_ml"
+    },
+    {
+      "id": "hasselblad-ungated-imaging",
+      "surface": "Hasselblad",
+      "canonical_source": "Hasselblad",
+      "target_term": "哈苏",
+      "keep_english_mode": "preferred",
+      "domain": "imaging",
+      "ungated": true
+    }
+  ]
+}

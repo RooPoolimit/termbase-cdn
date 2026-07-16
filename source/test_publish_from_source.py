@@ -65,8 +65,10 @@ def write_runtime_db(path):
 def copy_source_tree(target):
     source_dir = os.path.dirname(os.path.abspath(__file__))
     for name in ["compiled_schema.py", "termbase_compiler.py", "termbase_signing.py",
-                 "publish_from_source.py"]:
+                 "runtime_contract.py", "publish_from_source.py"]:
         shutil.copy2(os.path.join(source_dir, name), os.path.join(target, name))
+    with open(os.path.join(target, "runtime_contract.json"), "w", encoding="utf-8") as f:
+        json.dump({"schema_version": 1, "required_surfaces": []}, f)
     write_runtime_db(os.path.join(target, "termbase.published.db"))
     hashes = {
         name: publish_from_source.sha256_file(os.path.join(target, name))
@@ -174,21 +176,36 @@ class PublishFromSourceTests(unittest.TestCase):
             publish_from_source.publish(source, repo, mode="apply")
         self.assertFalse(os.path.exists(os.path.join(repo, "api", "termbase", "compiled")))
 
-    def test_apply_without_signature_publishes_unsigned(self):
-        # Phase-2 transition: an ABSENT signature does NOT block apply (the Action
-        # check is defense-in-depth, not the trust root). The published /version
-        # simply carries no signature fields — old clients ignore them anyway.
+    def test_apply_without_signature_is_rejected(self):
+        # Clients reject unsigned manifests, so the publisher must not create one.
         with tempfile.TemporaryDirectory() as repo:
             source = os.path.join(repo, "source")
             os.makedirs(source)
             copy_source_tree(source)  # no _sign_source -> no SIGNATURE
-            result = publish_from_source.publish(source, repo, mode="apply")
-            self.assertTrue(result["applied"])
-            self.assertEqual(result["signature_errors"], [])
-            with open(os.path.join(repo, "api", "termbase", "version"), encoding="utf-8") as f:
-                version = json.load(f)
-            for field in ("signature", "key_id", "publish_seq", "compiled_sha256"):
-                self.assertNotIn(field, version)
+            self._assert_dry_run_reports_then_apply_aborts(
+                repo, source, "SIGNATURE is required"
+            )
+
+    def test_runtime_contract_failure_aborts_before_publish(self):
+        with tempfile.TemporaryDirectory() as repo:
+            source = os.path.join(repo, "source")
+            os.makedirs(source)
+            copy_source_tree(source)
+            with open(os.path.join(source, "runtime_contract.json"), "w", encoding="utf-8") as f:
+                json.dump({
+                    "schema_version": 1,
+                    "required_surfaces": [{
+                        "id": "missing-critical-alias",
+                        "surface": "Finetuning",
+                        "canonical_source": "Fine-tuning",
+                    }],
+                }, f)
+
+            with self.assertRaises(SystemExit) as caught:
+                publish_from_source.publish(source, repo, mode="dry-run")
+
+            self.assertIn("missing-critical-alias", str(caught.exception))
+            self.assertFalse(os.path.exists(os.path.join(repo, "api", "termbase", "compiled")))
 
     def test_apply_aborts_on_bad_signature(self):
         with tempfile.TemporaryDirectory() as repo:

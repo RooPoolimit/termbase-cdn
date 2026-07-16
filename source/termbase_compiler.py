@@ -3,7 +3,7 @@ termbase compiler — 生成 extension 可消费的 compiled_termbase.json + SHA
 模块级缓存：/version 和 /compiled 共享同一份字节，避免漂移
 """
 
-import json, re, time, hashlib, sqlite3, os
+import json, time, hashlib, sqlite3, os
 from compiled_schema import KEEP_ENGLISH_MODES
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "termbase.published.db")
@@ -35,34 +35,6 @@ def _db_change_stamp() -> tuple:
     except OSError:
         pass
     return tuple(stamp)
-
-_PLURAL_WORD_RE = re.compile(r"^[A-Za-z]{2,}$")
-
-
-def _plural_variant(term_text: str) -> str | None:
-    """Best-effort English plural for a translate-as term, or None.
-
-    扩展端的 ASCII 词边界匹配不到复数（"Agents" ≠ "Agent"），人工 aliases 兜不全。
-    多词术语只复数化最后一个词（"Large Language Model" → "Large Language Models"），
-    缩写直接 +s（"LLM" → "LLMs"）。保守跳过：末词含数字/连字符/符号，或本就以 s
-    结尾（可能已是复数）。"""
-    text = (term_text or "").strip()
-    if not text:
-        return None
-    prefix, _, last = text.rpartition(" ")
-    if not _PLURAL_WORD_RE.match(last):
-        return None
-    lower = last.lower()
-    if lower.endswith("s"):
-        return None
-    if lower.endswith(("x", "z", "ch", "sh")):
-        plural = last + "es"
-    elif lower.endswith("y") and lower[-2] not in "aeiou":
-        plural = last[:-1] + "ies"
-    else:
-        plural = last + "s"
-    return (prefix + " " + plural) if prefix else plural
-
 
 # priority = 已知误译的最高 severity。它回答的是"40 条指令上限挤爆时，谁该留下"——
 # 最强的信号就是"模型在这个词上有记录在案的翻车史"。无 wrong 记录 → 0（字段不发，
@@ -117,9 +89,11 @@ def _build_compiled_dict_inner(conn) -> dict:
         ORDER BY source_lang, target_lang, source_term
     """).fetchall()
 
-    # 合成复数别名的全局冲突防护：一个变体若已被任何 approved 术语的 source_term
-    # 或人工 alias 占用，则不生成——既不在 compiled 里制造 lint 看不见的 alias
-    # 撞车，也保证人工数据永远赢过合成数据。
+    # Runtime aliases are explicit authoring data. Earlier compiler versions
+    # guessed English plurals and generated hundreds of invalid surfaces such
+    # as "A/B Testings", "Yis", and product-name plurals. Morphology is a
+    # semantic authoring decision, so the compiler now emits manual aliases
+    # only; release coverage tests identify missing high-value variants.
     alias_map: dict = {}
     for r in conn.execute("""
         SELECT a.term_id, a.alias FROM term_aliases a
@@ -127,11 +101,6 @@ def _build_compiled_dict_inner(conn) -> dict:
         WHERE t.status = 'approved' ORDER BY a.id
     """).fetchall():
         alias_map.setdefault(r["term_id"], []).append(r["alias"])
-    claimed = {t["source_term"].strip().lower() for t in terms_rows}
-    for arr in alias_map.values():
-        for a in arr:
-            claimed.add(a.strip().lower())
-
     # wrong_translations 一次性取回（此前每术语一查，~1700 查询/编译）。
     # 全局 ORDER BY w.id 保持每术语内的行序与旧逐条查询一致——顺序进
     # 编译产物，动它就动 checksum。
@@ -160,19 +129,8 @@ def _build_compiled_dict_inner(conn) -> dict:
             except json.JSONDecodeError:
                 domain_tags = [raw_tags]
 
-        # aliases → 扁平字符串数组（人工别名在前，合成复数在后）
+        # aliases → 扁平字符串数组（仅人工审核数据）
         aliases = list(alias_map.get(tid, []))
-        # 合成复数仅限 translate-as 术语 + 英文源：always 品牌词跳过——专有名词
-        # 复数没有意义（"Claude 4 Opuses"），且它们走 [##Kn##] 掩码路径。
-        # 游戏包里大量条目是角色、地点、作品和道具专名，自动复数会造出
-        # "Links" / "The Legend of Zeldas" 这类误命中 alias；需要复数的游戏名词
-        # 应显式录入人工 alias。
-        if keep_mode != "always" and "game" not in domain_tags and str(t["source_lang"] or "").lower().startswith("en"):
-            for cand in [t["source_term"]] + list(aliases):
-                variant = _plural_variant(cand)
-                if variant and variant.lower() not in claimed:
-                    claimed.add(variant.lower())
-                    aliases.append(variant)
 
         wrongs = wrongs_map.get(tid, [])
 

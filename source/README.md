@@ -13,6 +13,8 @@ Then review the CDN repo diff and commit manually.
 Files:
 
 - `compiled_schema.py`: runtime compiled payload contract constants
+- `runtime_contract.py`: semantic release-contract validator
+- `runtime_contract.json`: reviewed runtime surfaces that every full payload must preserve
 - `termbase_signing.py`: Ed25519 canonical-message + verify helpers (signature check in publish_from_source.py)
 - `PUBKEYS.json`: signature trust list (authoritative copy lives in the backend repo; hashed in SOURCE_VERSION)
 - `termbase_compiler.py`: CDN-side compiler copy, patched to read `termbase.published.db`

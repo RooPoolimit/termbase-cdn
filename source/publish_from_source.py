@@ -20,6 +20,7 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from compiled_schema import validate_compiled_payload
+import runtime_contract as rc
 import termbase_signing as ts
 
 
@@ -149,13 +150,11 @@ def verify_signature(
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Verify the offline SIGNATURE against the freshly-compiled bytes.
 
-    Transition behavior (Phase 2): an ABSENT SIGNATURE is ALLOWED — it returns no
-    errors and the publish proceeds UNSIGNED. This Action check is defense-in-depth
-    / process validation, not the trust root (that is the extension's embedded key,
-    PR-C). A PRESENT SIGNATURE MUST verify.
+    A signature is mandatory. The extension rejects unsigned manifests, so
+    publishing one would strand clients on their previous snapshot.
 
-    Returns (record, errors); an EMPTY errors list means "ok to publish" (either no
-    signature at all, or a fully valid one). FAIL-CLOSED — a non-empty list must
+    Returns (record, errors); an EMPTY errors list means "ok to publish".
+    FAIL-CLOSED — a non-empty list must
     abort `apply`. For a PRESENT signature the checks are: well-formed; key_id
     trusted (else "unknown key"); the signed compiled_sha256 equals sha256(raw); the
     Ed25519 signature verifies over PR-A's canonical message (derived fields read
@@ -164,11 +163,7 @@ def verify_signature(
     """
     record = load_signature(source_dir)
     if record is None:
-        # Phase-2 (transition): an ABSENT signature is allowed — this Action check
-        # is defense-in-depth / process validation, NOT the trust root. The trust
-        # root is the public key the EXTENSION embeds (PR-C), which is what makes a
-        # signature mandatory for clients. A PRESENT signature, though, MUST verify.
-        return None, []
+        return None, ["SIGNATURE is required for every publish"]
     missing = [f for f in ("key_id", "publish_seq", "compiled_sha256", "signature")
                if f not in record]
     if missing:
@@ -219,7 +214,9 @@ def build_version(
         "min_extension_version": payload.get("min_extension_version", "0.0.0"),
         "checksum": checksum,
         "download_url": DOWNLOAD_URL,
-        "generated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "generated_at": datetime.datetime.now(datetime.timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z"),
     }
     if signature_record is not None:
         version["key_id"] = signature_record["key_id"]
@@ -258,6 +255,21 @@ def publish(source_dir: str, repo_root: str, mode: str = "dry-run") -> dict[str,
         validate_compiled_payload(payload)
     except ValueError as exc:
         raise SystemExit(f"FATAL: compiled payload failed the schema contract: {exc}")
+
+    # Schema-valid bytes can still silently lose a reviewed alias, a
+    # symbol-tailed term, the intended domain, or a keep strategy. Enforce those
+    # runtime semantics before signature/apply handling.
+    contract_path = os.path.join(source_dir, "runtime_contract.json")
+    try:
+        contract = rc.load_runtime_contract(contract_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"FATAL: cannot load runtime contract: {exc}") from exc
+    runtime_errors = rc.validate_runtime_contract(payload, contract)
+    if runtime_errors:
+        raise SystemExit(
+            "FATAL: compiled payload failed the runtime contract: "
+            + "; ".join(runtime_errors)
+        )
 
     # Signature gate (PR-B): verify the offline SIGNATURE against the freshly
     # compiled bytes. FAIL-CLOSED on apply; dry-run reports and continues.
