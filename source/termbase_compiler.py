@@ -49,6 +49,11 @@ def _priority_for(wrongs: list) -> int:
     return p
 
 
+def _surface_key(value) -> str:
+    """Mirror the extension's termKey for collision ownership checks."""
+    return " ".join(str(value or "").strip().lower().split())
+
+
 def _content_version(terms: list) -> str:
     """Content-derived termbase_version: a stable 16-hex digest of the compiled
     term list. Identical data always yields the same version (and therefore the
@@ -101,6 +106,32 @@ def _build_compiled_dict_inner(conn) -> dict:
         WHERE t.status = 'approved' ORDER BY a.id
     """).fetchall():
         alias_map.setdefault(r["term_id"], []).append(r["alias"])
+
+    # `ungated` is currently term-level metadata, while ownership collisions
+    # are surface-level. If ANY canonical/alias surface has another approved
+    # owner, emitting term-level ungated would let that ambiguous spelling
+    # bypass domain gating. Live example: game term "Sigma (Overwatch)" was
+    # reviewed unique (homograph=0) but its alias "Sigma" also belongs to the
+    # imaging term; ungated made the game translation fire on ai_ml pages.
+    # Suppress ungated for the whole term until the payload can express
+    # surface-level gating. The runtime also enforces this defensively.
+    surface_owners: dict[str, set[int]] = {}
+    for row in terms_rows:
+        key = _surface_key(row["source_term"])
+        if key:
+            surface_owners.setdefault(key, set()).add(row["id"])
+    for term_id, aliases in alias_map.items():
+        for alias in aliases:
+            key = _surface_key(alias)
+            if key:
+                surface_owners.setdefault(key, set()).add(term_id)
+    collision_term_ids = {
+        term_id
+        for owners in surface_owners.values()
+        if len(owners) > 1
+        for term_id in owners
+    }
+
     # wrong_translations 一次性取回（此前每术语一查，~1700 查询/编译）。
     # 全局 ORDER BY w.id 保持每术语内的行序与旧逐条查询一致——顺序进
     # 编译产物，动它就动 checksum。
@@ -150,10 +181,14 @@ def _build_compiled_dict_inner(conn) -> dict:
         if priority:
             compiled_term["priority"] = priority
         # 危险度分级（2026-07-04）：homograph=0（人工审定的独特专名）发
-        # ungated:1——扩展端域硬过滤对它放行，无域信号也激活（Hasselblad、
-        # Zenyatta 不再被 Link/Canon 连坐）。homograph=1 或 NULL（未审）都
-        # 不发——运行时缺省 = 现行门控行为，fail-closed。
-        if has_homograph and t["homograph"] == 0:
+        # ungated:1——但仅限 canonical/alias 均无多 owner 冲突的术语。
+        # 冲突术语必须继续走领域门控；homograph=1 或 NULL（未审）同样不发，
+        # 运行时缺省 = fail-closed。
+        if (
+            has_homograph
+            and t["homograph"] == 0
+            and tid not in collision_term_ids
+        ):
             compiled_term["ungated"] = 1
         terms.append(compiled_term)
 
