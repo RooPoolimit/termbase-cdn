@@ -1,12 +1,12 @@
 {
   "schema_version": "v3",
-  "termbase_version": "5cc46929a13a2824",
+  "termbase_version": "f8ec64fcfb4a75c7",
   "min_extension_version": "0.0.0",
-  "checksum": "d4289cfde575e42b9986a87fc78e14282db87f773266f24a8cd0b096bb7d720c",
+  "checksum": "bc91813c7f8fe6d35ae50a20ab45d8d33a9a43a274bbf838e075e8aa3f6964be",
   "download_url": "https://roopoolimit.github.io/termbase-cdn/api/termbase/compiled",
-  "generated_at": "2026-08-04T10:17:10Z",
+  "generated_at": "2026-08-04T10:40:01Z",
   "key_id": "k1",
-  "publish_seq": 14,
-  "compiled_sha256": "d4289cfde575e42b9986a87fc78e14282db87f773266f24a8cd0b096bb7d720c",
-  "signature": "foEP8oV6pYSdsDITnGcx6AiEpon6jEtNZqvCurssQIPHJkAekwf7pORVW5nx3HrIb6d7rQs5mrsYho7srDAmDg=="
+  "publish_seq": 15,
+  "compiled_sha256": "bc91813c7f8fe6d35ae50a20ab45d8d33a9a43a274bbf838e075e8aa3f6964be",
+  "signature": "VdTbQJ6skUGmhadigQTdWUr2IWs9uCa2+3K3jCoPgG6ZNLyL4qFvDpiyeT3aWAu+UlC5hrjioIVXnXSBDTSwBQ=="
 }
