@@ -2,6 +2,54 @@
   "schema_version": 1,
   "required_surfaces": [
     {
+      "id": "api-acronym-keep",
+      "surface": "API",
+      "canonical_source": "API",
+      "target_term": "API",
+      "keep_english_mode": "always",
+      "policy_mode": "preserve_exact",
+      "domain": "ai_ml",
+      "ungated": true
+    },
+    {
+      "id": "apis-plural-keep",
+      "surface": "APIs",
+      "canonical_source": "API",
+      "target_term": "API",
+      "keep_english_mode": "always",
+      "policy_mode": "preserve_exact",
+      "domain": "ai_ml",
+      "ungated": true
+    },
+    {
+      "id": "llm-acronym-keep",
+      "surface": "LLM",
+      "canonical_source": "LLM",
+      "target_term": "LLM",
+      "keep_english_mode": "always",
+      "policy_mode": "preserve_exact",
+      "domain": "ai_ml",
+      "ungated": true
+    },
+    {
+      "id": "llms-plural-keep",
+      "surface": "LLMs",
+      "canonical_source": "LLM",
+      "target_term": "LLM",
+      "keep_english_mode": "always",
+      "policy_mode": "preserve_exact",
+      "domain": "ai_ml",
+      "ungated": true
+    },
+    {
+      "id": "large-language-model-still-translates",
+      "surface": "Large Language Model",
+      "canonical_source": "Large Language Model",
+      "target_term": "大语言模型",
+      "keep_english_mode": "never",
+      "domain": "ai_ml"
+    },
+    {
       "id": "cpp-symbol-keep",
       "surface": "C++",
       "canonical_source": "C++",
@@ -23,8 +71,27 @@
       "surface": "Agents",
       "canonical_source": "Agent",
       "target_term": "特工",
-      "keep_english_mode": "never",
+      "keep_english_mode": "contextual",
+      "policy_mode": "contextual",
       "domain": "game"
+    },
+    {
+      "id": "ray-contextual-framework",
+      "surface": "Ray",
+      "canonical_source": "Ray",
+      "target_term": "Ray",
+      "keep_english_mode": "contextual",
+      "policy_mode": "contextual",
+      "domain": "ai_ml"
+    },
+    {
+      "id": "resolution-contextual-legal",
+      "surface": "Resolution",
+      "canonical_source": "Resolution",
+      "target_term": "决议",
+      "keep_english_mode": "contextual",
+      "policy_mode": "contextual",
+      "domain": "legal"
     },
     {
       "id": "glm-always-verbatim",

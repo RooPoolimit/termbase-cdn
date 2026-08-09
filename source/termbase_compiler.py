@@ -40,6 +40,7 @@ def _db_change_stamp() -> tuple:
 # 最强的信号就是"模型在这个词上有记录在案的翻车史"。无 wrong 记录 → 0（字段不发，
 # 省 payload）；扩展端缺省按 0 处理，向后兼容旧 payload。
 _SEVERITY_PRIORITY = {"high": 3, "medium": 2, "low": 1}
+POLICY_MODES = frozenset({"preserve_exact", "translate_exact", "contextual", "preferred"})
 
 
 def _priority_for(wrongs: list) -> int:
@@ -83,12 +84,15 @@ def _build_compiled_dict_inner(conn) -> dict:
         r["name"] == "homograph" for r in conn.execute("PRAGMA table_info(terms)").fetchall()
     )
     homograph_col = ", homograph" if has_homograph else ""
+    term_columns = {r["name"] for r in conn.execute("PRAGMA table_info(terms)").fetchall()}
+    has_policy = {"policy_mode", "ambiguity"}.issubset(term_columns)
+    policy_cols = ", policy_mode, ambiguity" if has_policy else ""
 
     # 筛选：所有 approved 术语。语言对由每条 term 的 source_lang/target_lang 显式携带，
     # 扩展运行时按目标语言过滤，避免未来多语言术语被 compiler 静默丢弃。
     terms_rows = conn.execute(f"""
         SELECT id, source_term, target_term, source_lang, target_lang, preferred_translation,
-               keep_english_v2, domain_tags{homograph_col}
+               keep_english_v2, domain_tags{homograph_col}{policy_cols}
         FROM terms
         WHERE status = 'approved'
         ORDER BY source_lang, target_lang, source_term
@@ -145,6 +149,31 @@ def _build_compiled_dict_inner(conn) -> dict:
         wrongs_map.setdefault(r["term_id"], []).append(
             {"wrong": r["wrong_translation"], "severity": r["severity"]})
 
+    senses_map: dict = {}
+    has_senses = bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='term_senses'"
+    ).fetchone())
+    if has_senses:
+        for r in conn.execute("""
+            SELECT s.term_id, s.sense_key, s.target_translation, s.domain_tags,
+                   s.when_en, s.avoid_translations, s.priority
+            FROM term_senses s JOIN terms t ON t.id=s.term_id
+            WHERE t.status='approved' AND s.status='approved' ORDER BY s.id
+        """).fetchall():
+            try:
+                sense_domains = json.loads(r["domain_tags"] or "[]")
+            except json.JSONDecodeError:
+                sense_domains = []
+            try:
+                avoid = json.loads(r["avoid_translations"] or "[]")
+            except json.JSONDecodeError:
+                avoid = []
+            senses_map.setdefault(r["term_id"], []).append({
+                "id": r["sense_key"], "target": r["target_translation"],
+                "domains": sense_domains, "when": r["when_en"],
+                "avoid": avoid, "priority": r["priority"],
+            })
+
     terms = []
     for t in terms_rows:
         tid = t["id"]
@@ -176,6 +205,12 @@ def _build_compiled_dict_inner(conn) -> dict:
             "wrong_translations": wrongs,
             "domain_tags": domain_tags,
         }
+        if has_policy and (t["policy_mode"] or "") in POLICY_MODES:
+            compiled_term["policy_mode"] = t["policy_mode"]
+            if t["ambiguity"]:
+                compiled_term["ambiguity"] = t["ambiguity"]
+            if t["policy_mode"] == "contextual":
+                compiled_term["senses"] = list(senses_map.get(tid, []))
         # 稀疏字段：仅 >0 才发（约 1/10 的术语有 wrong 记录），其余省 payload。
         priority = _priority_for(wrongs)
         if priority:

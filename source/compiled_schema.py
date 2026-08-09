@@ -13,6 +13,13 @@ KEEP_ENGLISH_MODES = frozenset({
     "contextual",
     "never",
 })
+POLICY_MODE_TO_LEGACY = {
+    "preserve_exact": "always",
+    "translate_exact": "never",
+    "contextual": "contextual",
+    "preferred": "preferred",
+}
+AMBIGUITY_VALUES = frozenset({"unique", "domain_bound", "polysemous", "unreviewed"})
 
 REQUIRED_COMPILED_TERM_FIELDS = frozenset({
     "source_term",
@@ -60,3 +67,27 @@ def validate_compiled_payload(payload: dict[str, Any]) -> None:
         wrongs = term.get("wrong_translations")
         if not isinstance(wrongs, list) or any(not isinstance(w, dict) for w in wrongs):
             raise ValueError(f"compiled term {label!r} field 'wrong_translations' must be a list of objects")
+        policy_mode = term.get("policy_mode")
+        if policy_mode is not None:
+            if policy_mode not in POLICY_MODE_TO_LEGACY:
+                raise ValueError(f"compiled term {label!r} has invalid policy_mode")
+            if term.get("keep_english_mode") != POLICY_MODE_TO_LEGACY[policy_mode]:
+                raise ValueError(f"compiled term {label!r} has inconsistent policy/legacy modes")
+            ambiguity = term.get("ambiguity")
+            if ambiguity not in AMBIGUITY_VALUES:
+                raise ValueError(f"compiled term {label!r} has invalid ambiguity")
+            senses = term.get("senses", [])
+            if policy_mode == "contextual" and not senses:
+                raise ValueError(f"compiled contextual term {label!r} has no senses")
+            if senses and policy_mode != "contextual":
+                raise ValueError(f"compiled non-contextual term {label!r} unexpectedly has senses")
+            for sense in senses:
+                if not isinstance(sense, dict):
+                    raise ValueError(f"compiled term {label!r} has a non-object sense")
+                for field in ("id", "target", "when"):
+                    if not isinstance(sense.get(field), str) or not sense[field].strip():
+                        raise ValueError(f"compiled term {label!r} sense has invalid {field}")
+                for field in ("domains", "avoid"):
+                    value = sense.get(field)
+                    if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+                        raise ValueError(f"compiled term {label!r} sense field {field} must be strings")

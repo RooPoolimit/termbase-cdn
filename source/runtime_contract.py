@@ -91,6 +91,7 @@ def validate_runtime_contract(
         expected_fields = {
             "target_term": case.get("target_term"),
             "keep_english_mode": case.get("keep_english_mode"),
+            "policy_mode": case.get("policy_mode"),
         }
         for field, expected in expected_fields.items():
             if expected is not None and term.get(field) != expected:
