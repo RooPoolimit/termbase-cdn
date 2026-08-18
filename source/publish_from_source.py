@@ -150,12 +150,23 @@ def verify_signature(
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Verify the offline SIGNATURE against the freshly-compiled bytes.
 
-    A signature is mandatory. The extension rejects unsigned manifests, so
-    publishing one would strand clients on their previous snapshot.
+    A signature is OPTIONAL as of 2026-08-18 (project decision: the offline
+    signing step was cancelled).  An ABSENT SIGNATURE publishes unsigned, with a
+    notice; `build_version` then omits the key_id/publish_seq/signature fields
+    entirely rather than asserting anything untrue about the payload.  Client
+    impact is nil today: `termbase-sync.js` verifies signatures in SHADOW mode
+    ("records the verdict, never blocks") and gates adoption on the checksum, so
+    an unsigned manifest is adopted normally and merely leaves the rollback
+    anchor where it was.
+
+    A PRESENT signature is still verified STRICTLY and still FAIL-CLOSED on
+    apply.  That asymmetry is deliberate: a missing signature is a missing
+    claim, but a wrong one is an untrue claim about these exact bytes, and
+    shipping it is strictly worse than shipping none.  It also keeps signing
+    available for anyone who wants it back — nothing here is one-way.
 
     Returns (record, errors); an EMPTY errors list means "ok to publish".
-    FAIL-CLOSED — a non-empty list must
-    abort `apply`. For a PRESENT signature the checks are: well-formed; key_id
+    For a PRESENT signature the checks are: well-formed; key_id
     trusted (else "unknown key"); the signed compiled_sha256 equals sha256(raw); the
     Ed25519 signature verifies over PR-A's canonical message (derived fields read
     from the payload); and publish_seq is strictly greater than the currently-
@@ -163,7 +174,7 @@ def verify_signature(
     """
     record = load_signature(source_dir)
     if record is None:
-        return None, ["SIGNATURE is required for every publish"]
+        return None, []
     missing = [f for f in ("key_id", "publish_seq", "compiled_sha256", "signature")
                if f not in record]
     if missing:
@@ -274,6 +285,9 @@ def publish(source_dir: str, repo_root: str, mode: str = "dry-run") -> dict[str,
     # Signature gate (PR-B): verify the offline SIGNATURE against the freshly
     # compiled bytes. FAIL-CLOSED on apply; dry-run reports and continues.
     signature_record, sig_errors = verify_signature(source_dir, api_dir, raw, payload)
+    if signature_record is None and not sig_errors:
+        print("NOTICE: publishing UNSIGNED (offline signing step cancelled 2026-08-18); "
+              "version will carry no key_id/publish_seq/signature")
     for err in sig_errors:
         print(f"WARNING: signature check: {err}")
     if mode == "apply" and sig_errors:

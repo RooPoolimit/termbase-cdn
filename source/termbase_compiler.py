@@ -85,8 +85,8 @@ def _build_compiled_dict_inner(conn) -> dict:
     )
     homograph_col = ", homograph" if has_homograph else ""
     term_columns = {r["name"] for r in conn.execute("PRAGMA table_info(terms)").fetchall()}
-    has_policy = {"policy_mode", "ambiguity"}.issubset(term_columns)
-    policy_cols = ", policy_mode, ambiguity" if has_policy else ""
+    has_policy = {"policy_mode", "ambiguity", "policy_reviewed"}.issubset(term_columns)
+    policy_cols = ", policy_mode, ambiguity, policy_reviewed" if has_policy else ""
 
     # 筛选：所有 approved 术语。语言对由每条 term 的 source_lang/target_lang 显式携带，
     # 扩展运行时按目标语言过滤，避免未来多语言术语被 compiler 静默丢弃。
@@ -206,10 +206,17 @@ def _build_compiled_dict_inner(conn) -> dict:
             "domain_tags": domain_tags,
         }
         if has_policy and (t["policy_mode"] or "") in POLICY_MODES:
-            compiled_term["policy_mode"] = t["policy_mode"]
+            policy_mode = t["policy_mode"]
+            if policy_mode in {"preserve_exact", "translate_exact"} and (
+                t["ambiguity"] != "unique" or t["policy_reviewed"] != 1
+            ):
+                raise ValueError(
+                    f"term {tid} {policy_mode} requires ambiguity=unique and policy_reviewed=1"
+                )
+            compiled_term["policy_mode"] = policy_mode
             if t["ambiguity"]:
                 compiled_term["ambiguity"] = t["ambiguity"]
-            if t["policy_mode"] == "contextual":
+            if policy_mode == "contextual":
                 compiled_term["senses"] = list(senses_map.get(tid, []))
         # 稀疏字段：仅 >0 才发（约 1/10 的术语有 wrong 记录），其余省 payload。
         priority = _priority_for(wrongs)

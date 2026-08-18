@@ -176,15 +176,24 @@ class PublishFromSourceTests(unittest.TestCase):
             publish_from_source.publish(source, repo, mode="apply")
         self.assertFalse(os.path.exists(os.path.join(repo, "api", "termbase", "compiled")))
 
-    def test_apply_without_signature_is_rejected(self):
-        # Clients reject unsigned manifests, so the publisher must not create one.
+    def test_apply_without_signature_publishes_unsigned(self):
+        # 2026-08-18: the offline signing step was cancelled by project decision.
+        # An ABSENT signature publishes; version then asserts nothing about
+        # provenance rather than carrying a claim nobody made.  (A PRESENT but
+        # invalid signature is still fail-closed -- see the tests above.)
         with tempfile.TemporaryDirectory() as repo:
             source = os.path.join(repo, "source")
             os.makedirs(source)
             copy_source_tree(source)  # no _sign_source -> no SIGNATURE
-            self._assert_dry_run_reports_then_apply_aborts(
-                repo, source, "SIGNATURE is required"
-            )
+            result = publish_from_source.publish(source, repo, mode="apply")
+            self.assertEqual(result["signature_errors"], [])
+            version_path = os.path.join(repo, "api", "termbase", "version")
+            self.assertTrue(os.path.exists(os.path.join(repo, "api", "termbase", "compiled")))
+            with open(version_path, "r", encoding="utf-8") as f:
+                version_payload = json.load(f)
+            for field in ("key_id", "publish_seq", "signature", "compiled_sha256"):
+                self.assertNotIn(field, version_payload)
+            self.assertEqual(version_payload["checksum"], result["checksum"])
 
     def test_runtime_contract_failure_aborts_before_publish(self):
         with tempfile.TemporaryDirectory() as repo:
