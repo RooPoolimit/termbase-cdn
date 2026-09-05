@@ -1,10 +1,10 @@
-backend_commit: 533b0164a5a4f34c90ef847dd0881d2088647616
-copied_at: 2026-09-05T14:29:40Z
+backend_commit: 6682a0803d7d1543dcd63598e86679ae4cb03470
+copied_at: 2026-09-05T14:34:21Z
 files:
   PUBKEYS.json: 26be0215dc837ebc2d31f8e6136c0851bf0e895a0eb5db9d1a8323a48e82ab93
   compiled_schema.py: 9c43c1c08dc2c29d2da20cf9c8086f1a6cfab8e86ecb93f76f814fcc348b4b0f
   publish_from_source.py: 04553d3e3019ee2d847e1f20259e05e2fc3ed01302b6351809cf8e4cdf9846e4
-  runtime_contract.json: c8741d4ba08f96400d5276219d4266aca0529a9ce912c4a2eea25d5f1e45ffa3
+  runtime_contract.json: 9326f54a128ae5e6a1c90564d783218570e540066bd61387d9050689002b6518
   runtime_contract.py: 628ebe1cd62d7a7574682224a15071cd27dee538492fa1f585483d888bd87cb2
   termbase.published.db: e42b543eb9504e5fcd752cab57a78a3b1d2f080ebfcb271c11706e9e18522e34
   termbase_compiler.py: d2d1f28cfb461973e4abf5d1a1ffebde30c0facac625e3390489c575dba7d4e9
