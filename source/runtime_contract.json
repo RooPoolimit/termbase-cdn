@@ -50,11 +50,20 @@
       "domain": "ai_ml"
     },
     {
+      "id": "regression-ai-sense",
+      "surface": "Regression",
+      "canonical_source": "Regression",
+      "target_term": "回归",
+      "keep_english_mode": "never",
+      "domain": "ai_ml"
+    },
+    {
       "id": "cpp-symbol-keep",
       "surface": "C++",
       "canonical_source": "C++",
       "target_term": "C++",
       "keep_english_mode": "always",
+      "policy_mode": "preserve_exact",
       "domain": "ai_ml",
       "ungated": true
     },
@@ -94,39 +103,24 @@
       "domain": "legal"
     },
     {
-      "id": "glm-always-verbatim",
-      "surface": "GLM-4.5-Air",
-      "canonical_source": "GLM-4.5-Air",
-      "target_term": "GLM-4.5-Air",
-      "keep_english_mode": "always",
-      "domain": "ai_ml"
-    },
-    {
-      "id": "regression-ai-sense",
-      "surface": "Regression",
-      "canonical_source": "Regression",
-      "target_term": "回归",
-      "keep_english_mode": "never",
-      "domain": "ai_ml"
-    },
-    {
       "id": "hasselblad-ungated-imaging",
       "surface": "Hasselblad",
       "canonical_source": "Hasselblad",
       "target_term": "哈苏",
-      "keep_english_mode": "preferred",
+      "keep_english_mode": "never",
+      "policy_mode": "translate_exact",
       "domain": "imaging",
       "ungated": true
     },
     {
-      "id": "sigma-game-alias-remains-gated",
-      "surface": "Sigma",
+      "id": "sigma-game-canonical",
+      "surface": "Sigma (Overwatch)",
       "canonical_source": "Sigma (Overwatch)",
       "target_term": "西格玛",
       "keep_english_mode": "never",
+      "policy_mode": "translate_exact",
       "domain": "game",
-      "ungated": false,
-      "allow_other_candidates": true
+      "ungated": true
     }
   ]
 }
